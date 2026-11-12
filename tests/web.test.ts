@@ -69,7 +69,7 @@ test('scan errors get a title and a next step; retry is offered only when it can
     ["GitHub's limit of 60 unauthenticated requests per hour was reached.", "GitHub's request limit was reached", false],
     ['Could not reach GitHub (ECONNRESET).', 'Could not reach GitHub', true],
     ['GitHub answered with a redirect; the repository may have been renamed or moved.', 'The repository has moved', false],
-    ['GitHub refused the request (HTTP 403).', 'GitHub refused the request', true],
+    ['GitHub refused the request (HTTP 403).', 'GitHub refused the request (HTTP 403)', false],
     ['GitHub sent a response RepoPilot could not read.', "GitHub's answer could not be used", true],
     ['something unexpected', 'The scan failed', true],
   ];
@@ -79,6 +79,30 @@ test('scan errors get a title and a next step; retry is offered only when it can
     assert.equal(view.retry, retry, message);
     assert.ok(view.advice.length > 10);
   }
+});
+
+test('the rate-limit advice gives the reset time only when GitHub reported one, in local time', () => {
+  const iso = '2030-03-17T08:46:40.000Z';
+  const local = new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const base = "GitHub's limit of 60 unauthenticated requests per hour was reached.";
+  const withTime = explainError(`${base} Resets at ${iso}. RepoPilot does not use a token.`);
+  assert.ok(withTime.advice.includes(`You can scan again after ${local} (your local time).`), withTime.advice);
+  const without = explainError(`${base} RepoPilot does not use a token.`);
+  assert.match(without.advice, /did not say when the limit resets; it is usually within an hour/);
+  const broken = explainError(`${base} Resets at 2030-99-99T99:99:99.000Z.`);
+  assert.match(broken.advice, /did not say when the limit resets/);
+  for (const view of [withTime, without, broken]) {
+    assert.doesNotMatch(view.advice, /given below|Invalid Date/);
+    assert.equal(view.retry, false);
+  }
+});
+
+test('a plain HTTP 403 explains the likely causes and offers no immediate retry', () => {
+  const view = explainError('GitHub refused the request (HTTP 403).');
+  assert.equal(view.retry, false);
+  assert.match(view.advice, /too many arrive in a short time/);
+  assert.match(view.advice, /Wait a few minutes/);
+  assert.match(view.advice, /open the repository on github\.com/);
 });
 
 test('the page keeps its accessibility structure', () => {

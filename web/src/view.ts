@@ -99,7 +99,14 @@ export function explainError(message: string): ErrorView {
     return { title: 'Repository not found', advice: 'Check the spelling of the owner and the repository name. Private repositories are not supported.', retry: false };
   }
   if (/limit of 60 unauthenticated requests/.test(message)) {
-    return { title: "GitHub's request limit was reached", advice: 'GitHub counts requests per IP address and resets the count every hour. Try again after the time given below.', retry: false };
+    // The source message carries the reset time only when GitHub reported one.
+    const iso = /Resets at (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(message)?.[1];
+    const reset = iso === undefined ? undefined : new Date(iso);
+    const when =
+      reset === undefined || Number.isNaN(reset.getTime())
+        ? 'GitHub did not say when the limit resets; it is usually within an hour.'
+        : `You can scan again after ${reset.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (your local time).`;
+    return { title: "GitHub's request limit was reached", advice: `GitHub limits unauthenticated requests per IP address. ${when}`, retry: false };
   }
   if (/Could not reach GitHub/.test(message)) {
     return { title: 'Could not reach GitHub', advice: 'Check your internet connection, then try again.', retry: true };
@@ -108,7 +115,13 @@ export function explainError(message: string): ErrorView {
     return { title: 'The repository has moved', advice: 'Enter the repository under its new name.', retry: false };
   }
   if (/refused the request/.test(message)) {
-    return { title: 'GitHub refused the request', advice: 'Wait a minute and try again. If it keeps happening, the repository may restrict access.', retry: true };
+    // No retry button: repeating a refused request straight away can make a temporary block last longer.
+    return {
+      title: 'GitHub refused the request (HTTP 403)',
+      advice:
+        'GitHub refuses requests when too many arrive in a short time, or when access to a repository is blocked. Wait a few minutes before scanning again. If it still fails, open the repository on github.com to check that it is available.',
+      retry: false,
+    };
   }
   if (/could not read|too large to read|HTTP 5\d\d/.test(message)) {
     return { title: "GitHub's answer could not be used", advice: 'Try again later. A very large repository may be too big for this demo.', retry: true };
