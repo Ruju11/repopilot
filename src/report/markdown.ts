@@ -24,7 +24,12 @@ function plain(text: string): string {
     .replaceAll('`', "'")
     .replaceAll('[', '\\[')
     .replaceAll(']', '\\]')
-    .replaceAll('|', '\\|');
+    .replaceAll('|', '\\|')
+    // GitHub-flavoured Markdown turns "www.x", "http(s)://x" and "a@b.c" in plain text into
+    // clickable links. A zero-width space after the trigger stops that without changing what is read.
+    .replaceAll(/www\./gi, (match) => `${match.slice(0, 3)}​.`)
+    .replaceAll('://', ':​//')
+    .replaceAll(/@(?=[A-Za-z0-9-]+\.)/g, '@​');
 }
 
 /** A code span (no angle brackets, so it is inert even in a renderer that allows HTML), linked if safe. */
@@ -61,7 +66,8 @@ export function toMarkdown(report: Report): string {
   if (fixes.length > 0) {
     lines.push('', '## Suggested fixes', '');
     for (const finding of fixes) {
-      lines.push(`- **${plain(finding.title)}:** ${plain(finding.hint ?? '')}`);
+      // Hints are fixed strings written in this project (one contains a trusted URL), not repository data.
+      lines.push(`- **${plain(finding.title)}:** ${finding.hint ?? ''}`);
     }
   }
   return `${lines.join('\n')}\n`;

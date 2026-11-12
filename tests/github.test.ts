@@ -310,6 +310,24 @@ test('hostile file names stay on one table row and are encoded in links', async 
   assert.ok(!row.includes('`b'));
 });
 
+test('REGRESSION: names and notes cannot become automatic links in plain text', () => {
+  const report = analyze({
+    origin: 'x',
+    files: ['.github/workflows/www.evil.example.yml', '.github/workflows/a@evil.example.yml'],
+    contents: {},
+    notes: ['Could not read https://evil.example/x (EIO).', 'Skipped www.evil.example and mail@evil.example.'],
+  });
+  const out = toMarkdown(report);
+  assert.ok(out.includes('www​.evil.example'), 'trigger should be broken, text kept');
+  const lines = out.split('\n').filter((line) => line.startsWith('| ') || (line.startsWith('- ') && !line.startsWith('- **')));
+  assert.ok(lines.length > 10);
+  for (const line of lines) {
+    const visible = line.replace(/`[^`]*`/g, '').replace(/\]\([^)]*\)/g, '');
+    assert.ok(!/www\.|:\/\/|@(?=[A-Za-z0-9-]+\.)/.test(visible), `autolink trigger left in: ${visible}`);
+  }
+  assert.ok(out.includes('https://choosealicense.com/'), 'trusted hint URL must stay clickable');
+});
+
 test('a report whose link base is not a pinned GitHub URL gets no links', () => {
   const report = analyze({ origin: 'x', files: ['SECURITY.md'], contents: {}, notes: [], urlBase: 'x' });
   for (const urlBase of ['javascript:alert(1)//', 'https://evil.test/o/r/blob/' + SHA + '/', 'https://github.com/o/r/blob/HEAD/', `https://github.com/../blob/${SHA}/`, `http://github.com/o/r/blob/${SHA}/`, `https://github.com/o/r/blob/${SHA}/ ) [x](y`]) {
