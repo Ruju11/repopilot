@@ -84,6 +84,22 @@ export function toView(report: Report): ReportView {
   };
 }
 
+/**
+ * Groups file paths by their first folder for the repository map. The key '' holds root files.
+ * Paths are untrusted; a Map is used so a folder named like an object property cannot collide.
+ */
+export function groupFilesByTopFolder(files: readonly string[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const path of files) {
+    const slash = path.indexOf('/');
+    const key = slash === -1 ? '' : path.slice(0, slash);
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [path]);
+    else group.push(path);
+  }
+  return groups;
+}
+
 /** Groups rows by status, most urgent first, leaving out empty groups. */
 export function groupRows(rows: RowView[]): GroupView[] {
   return STATUS_ORDER.map((status) => ({
