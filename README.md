@@ -42,6 +42,10 @@ npm run verify   # type check, then tests
 
 Tests are offline: GitHub is replaced by a fake fetcher, and file-system failures by a fake file system.
 
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+
 ## Limitations
 
 - A passing README check means a README file exists (and, for the root file, has some length). It says nothing about quality.

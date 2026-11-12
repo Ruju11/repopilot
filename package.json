@@ -2,6 +2,7 @@
   "name": "repopilot",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Checks a repository for readiness and links every finding to its source.",
   "type": "module",
   "engines": {
