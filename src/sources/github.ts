@@ -4,26 +4,38 @@ import { MAX_FILES, MAX_TEXT_BYTES, MAX_TEXT_FILES, reason, TEXT_FILE } from './
 
 /*
  * Read-only access to PUBLIC repositories through GitHub's unauthenticated API.
- * No token is ever read, sent or logged. Cost per run: 1 API request (60 per hour
- * per IP address are allowed) plus up to 5 downloads from raw.githubusercontent.com.
+ * No token is ever read, sent or logged.
+ *
+ * One run resolves the default branch to a commit SHA once, then reads the file
+ * list and the README/licence texts from that exact commit, and links evidence to it.
+ * Cost: 2 API requests (GitHub allows 60 per hour per IP address) plus up to 5
+ * downloads from raw.githubusercontent.com. Response sizes are capped by counting
+ * bytes as they stream in; a response that crosses the cap is cancelled.
  */
 
 const API = 'https://api.github.com';
 const RAW = 'https://raw.githubusercontent.com';
 const TIMEOUT_MS = 10_000;
 const MAX_TREE_BYTES = 16 * 1024 * 1024;
+const MAX_SHA_BYTES = 200;
 const LOW_QUOTA = 5;
+const SHA = /^[0-9a-f]{40}$/;
 
 export interface GithubTarget {
   owner: string;
   repo: string;
 }
 
+export interface BodyReader {
+  read(): Promise<{ done: boolean; value?: Uint8Array }>;
+  cancel(): Promise<void>;
+}
+
 export interface HttpResponse {
   status: number;
   ok: boolean;
   headers: { get(name: string): string | null };
-  text(): Promise<string>;
+  body: { getReader(): BodyReader } | null;
 }
 
 export interface HttpInit {
@@ -71,6 +83,31 @@ interface Reply {
   reset: string | null;
 }
 
+/** Reads a body, counting bytes as they arrive. Cancels the read once the cap is crossed. */
+async function readCapped(body: HttpResponse['body'], maxBytes: number): Promise<{ text: string; tooLarge: boolean }> {
+  if (body === null) return { text: '', tooLarge: false };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done || value === undefined) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return { text: '', tooLarge: true };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { text: new TextDecoder().decode(bytes), tooLarge: false };
+}
+
 async function fetchText(
   fetcher: Fetcher,
   url: string,
@@ -88,12 +125,14 @@ async function fetchText(
     if (!response.ok) return { ...reply, tooLarge: false, body: '' };
     const length = Number(response.headers.get('content-length'));
     if (Number.isFinite(length) && length > maxBytes) return { ...reply, tooLarge: true, body: '' };
-    const body = await response.text();
-    return body.length > maxBytes ? { ...reply, tooLarge: true, body: '' } : { ...reply, tooLarge: false, body };
+    const { text, tooLarge } = await readCapped(response.body, maxBytes);
+    return { ...reply, tooLarge, body: text };
   } catch (error) {
     throw new Error(`Could not reach GitHub (${reason(error)}).`);
   }
 }
+
+const unreadable = (): Error => new Error('GitHub sent a response RepoPilot could not read.');
 
 function httpError(reply: Reply, repoName: string): Error {
   if (reply.status === 429 || (reply.status === 403 && reply.remaining === '0')) {
@@ -120,15 +159,14 @@ interface TreeEntry {
 }
 
 function parseTree(body: string): { entries: TreeEntry[]; truncated: boolean } {
-  const unreadable = new Error('GitHub sent a response RepoPilot could not read.');
   let data: unknown;
   try {
     data = JSON.parse(body);
   } catch {
-    throw unreadable;
+    throw unreadable();
   }
   if (typeof data !== 'object' || data === null || !('tree' in data) || !Array.isArray(data.tree)) {
-    throw unreadable;
+    throw unreadable();
   }
   const entries: TreeEntry[] = [];
   for (const item of data.tree as unknown[]) {
@@ -146,7 +184,7 @@ function parseTree(body: string): { entries: TreeEntry[]; truncated: boolean } {
   return { entries, truncated: 'truncated' in data && data.truncated === true };
 }
 
-/** Builds a snapshot of a public repository's default branch. Read-only. */
+/** Builds a snapshot of a public repository's default branch, pinned to one commit. Read-only. */
 export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = defaultFetcher): Promise<RepoSnapshot> {
   const name = `${target.owner}/${target.repo}`;
   const notes: string[] = [];
@@ -156,25 +194,33 @@ export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = de
     'X-GitHub-Api-Version': '2022-11-28',
   };
 
-  const listing = await fetchText(fetcher, `${API}/repos/${name}/git/trees/HEAD?recursive=1`, apiHeaders, MAX_TREE_BYTES);
-  let files: string[] = [];
-  if (listing.status === 409) {
-    notes.push('The repository is empty.');
-  } else if (listing.tooLarge) {
-    throw new Error('GitHub sent a file list too large to read.');
-  } else if (!listing.ok) {
-    throw httpError(listing, name);
-  } else {
-    const { entries, truncated } = parseTree(listing.body);
-    const blobs = entries.filter((entry) => entry.type === 'blob');
-    const links = blobs.filter((entry) => entry.mode === '120000').length;
-    files = blobs.filter((entry) => entry.mode !== '120000').map((entry) => entry.path);
-    if (links > 0) notes.push(`${links} symbolic link(s) in the repository were not followed.`);
-    if (truncated) notes.push('GitHub shortened the file list (very large repository); some files may be missing from this report.');
-    if (files.length > MAX_FILES) {
-      files = files.slice(0, MAX_FILES);
-      notes.push(`Only the first ${MAX_FILES} files were used.`);
-    }
+  // Resolve the default branch to a commit once; everything below is pinned to it.
+  const head = await fetchText(
+    fetcher,
+    `${API}/repos/${name}/commits/HEAD`,
+    { ...apiHeaders, Accept: 'application/vnd.github.sha' },
+    MAX_SHA_BYTES,
+  );
+  if (head.status === 409) {
+    return { origin: `github.com/${name}`, files: [], contents: {}, notes: ['The repository is empty.'] };
+  }
+  if (!head.ok) throw httpError(head, name);
+  const sha = head.body.trim();
+  if (head.tooLarge || !SHA.test(sha)) throw unreadable();
+
+  const listing = await fetchText(fetcher, `${API}/repos/${name}/git/trees/${sha}?recursive=1`, apiHeaders, MAX_TREE_BYTES);
+  if (listing.tooLarge) throw new Error('GitHub sent a file list too large to read.');
+  if (!listing.ok) throw httpError(listing, name);
+
+  const { entries, truncated } = parseTree(listing.body);
+  const blobs = entries.filter((entry) => entry.type === 'blob');
+  const links = blobs.filter((entry) => entry.mode === '120000').length;
+  let files = blobs.filter((entry) => entry.mode !== '120000').map((entry) => entry.path);
+  if (links > 0) notes.push(`${links} symbolic link(s) in the repository were not followed.`);
+  if (truncated) notes.push('GitHub shortened the file list (very large repository); some files may be missing from this report.');
+  if (files.length > MAX_FILES) {
+    files = files.slice(0, MAX_FILES);
+    notes.push(`Only the first ${MAX_FILES} files were used.`);
   }
   files.sort();
 
@@ -188,7 +234,7 @@ export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = de
   const contents: Record<string, string> = {};
   for (const file of wanted.slice(0, MAX_TEXT_FILES)) {
     try {
-      const raw = await fetchText(fetcher, `${RAW}/${name}/HEAD/${encodePath(file)}`, { 'User-Agent': 'repopilot' }, MAX_TEXT_BYTES);
+      const raw = await fetchText(fetcher, `${RAW}/${name}/${sha}/${encodePath(file)}`, { 'User-Agent': 'repopilot' }, MAX_TEXT_BYTES);
       if (raw.tooLarge) {
         notes.push(`${clean(file)} is larger than ${MAX_TEXT_BYTES / 1024} KB and was not read.`);
       } else if (!raw.ok) {
@@ -202,10 +248,10 @@ export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = de
   }
 
   return {
-    origin: `github.com/${name}`,
+    origin: `github.com/${name}@${sha.slice(0, 7)}`,
     files,
     contents,
     notes,
-    urlBase: `https://github.com/${name}/blob/HEAD/`,
+    urlBase: `https://github.com/${name}/blob/${sha}/`,
   };
 }
