@@ -10,7 +10,9 @@ const TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
 };
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/** Same as the policy in web/index.html, plus frame-ancestors, which a meta tag cannot carry. */
+export const CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /** Maps a URL path to a candidate file below root by name only. Does not look at the disk. */
 export function resolveStatic(root: string, urlPath: string): string | undefined {

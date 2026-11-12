@@ -3,21 +3,39 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'">
   <title>RepoPilot demo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
     <h1>RepoPilot</h1>
-    <p>Repository readiness checks. This demo runs on <strong>synthetic sample data</strong> in your browser. It reads no repository and makes no network requests. In these sample reports the Evidence column shows the <strong>file names</strong> a check matched, as plain text; no link is made because no real repository is behind them.</p>
-    <div class="controls">
-      <label for="sample">Sample repository</label>
-      <select id="sample"></select>
-      <button id="run" type="button">Run checks</button>
-    </div>
-    <p id="description"></p>
-    <section id="result" aria-live="polite"></section>
+    <p>Repository readiness checks. Scan a public GitHub repository, or look at the synthetic samples further down.</p>
+
+    <section aria-labelledby="live-title">
+      <h2 id="live-title">Scan a public GitHub repository</h2>
+      <p>Your browser contacts GitHub directly (<code>api.github.com</code> and <code>raw.githubusercontent.com</code>), read-only and without a token. Nothing is sent to any other server. GitHub allows 60 requests per hour per IP address; a scan uses 2. Results come from the repository's default branch at one commit, and every file name is shown as text.</p>
+      <form id="live-form" class="controls" novalidate>
+        <label for="repo">Repository (owner/repo)</label>
+        <input id="repo" name="repo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="140" placeholder="octocat/Hello-World" aria-describedby="live-status">
+        <button id="scan" type="submit">Scan</button>
+      </form>
+      <p id="live-status" role="status"></p>
+      <div id="live-result"></div>
+    </section>
+
+    <section aria-labelledby="sample-title">
+      <h2 id="sample-title">Sample reports</h2>
+      <p>Sample reports use <strong>synthetic data</strong> and make no network requests. In these sample reports the Evidence column shows the <strong>file names</strong> a check matched, as plain text; no link is made because no real repository is behind them.</p>
+      <div class="controls">
+        <label for="sample">Sample repository</label>
+        <select id="sample"></select>
+        <button id="run" type="button">Run checks</button>
+      </div>
+      <p id="description"></p>
+      <div id="result" aria-live="polite"></div>
+    </section>
   </main>
   <script type="module" src="dist/web/src/main.js"></script>
 </body>

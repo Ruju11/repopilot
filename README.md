@@ -18,13 +18,20 @@ GitHub targets are **public** repositories, read through GitHub's unauthenticate
 
 File names come from untrusted repositories. In Markdown output they are escaped and shown in code spans, and links are built only from a validated GitHub URL pinned to the commit. Anything that renders a report in a browser should show the structured JSON fields as plain text, not as HTML.
 
-## Demo (sample data, local only)
+## Demo (local only)
 
 ```
 npm run demo     # builds web/dist, serves http://127.0.0.1:4173/
 ```
 
-The page runs the same checks in the browser on three synthetic samples, one of them with hostile file names. It makes no network requests: the page's Content-Security-Policy sets `connect-src 'none'`, `script-src 'self'` and no inline code. All report text is placed with `textContent`; no HTML is ever parsed, and a test fails if `innerHTML` and similar calls appear in the demo code. The local server resolves the real path of `web/` and of each requested file, so a symbolic link or Windows junction inside `web/` cannot expose a file outside it (tested over HTTP). In the sample reports the Evidence column shows matched file names as plain text, not links. Live GitHub scans are not part of the demo yet; adding them will need a deliberate policy change and a review. The demo has not been deployed.
+The page runs the same checks in the browser in two ways:
+
+- **Live scan:** type `owner/repo` of a public GitHub repository. The browser contacts GitHub directly, read-only and without a token (one commit lookup and one file list from `api.github.com`, up to 5 text downloads from `raw.githubusercontent.com`), and nothing goes to any other server. The input is validated before any request. Results are pinned to one commit, and evidence links point to that commit.
+- **Samples:** three synthetic reports (one with hostile file names) that make no network requests. Their Evidence column shows matched file names as plain text, not links.
+
+Security properties, each covered by a test or a browser check: the page's Content-Security-Policy allows `connect-src` to exactly `https://api.github.com` and `https://raw.githubusercontent.com` and nothing else (the server header and the HTML meta tag are the same apart from `frame-ancestors`); `script-src 'self'`, no inline code; no cookies, credentials, storage, referrer or token; the only network call in the browser code is the audited GitHub source. All report text is placed with `textContent`; no HTML is ever parsed, and a test fails if `innerHTML` and similar calls appear. The local server resolves the real path of `web/` and of each requested file, so a symbolic link or Windows junction inside `web/` cannot expose a file outside it.
+
+Limits: GitHub allows 60 unauthenticated requests per hour per IP address and a scan uses 2 to 3; private repositories are not supported; the demo has not been deployed and is checked in one browser engine (Chromium) only.
 
 ## Development
 

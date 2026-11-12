@@ -10,6 +10,8 @@ export interface RepoSnapshot {
   notes: string[];
   /** When set, evidence paths can be linked as urlBase plus the encoded path. */
   urlBase?: string;
+  /** GitHub API requests left in the current hour, when GitHub reported it. Not part of the report. */
+  apiRemaining?: number;
 }
 
 export type Status = 'pass' | 'warn' | 'fail' | 'not-applicable';

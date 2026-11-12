@@ -16,5 +16,5 @@
     "outDir": "web/dist",
     "skipLibCheck": true
   },
-  "include": ["src/core", "web/src"]
+  "include": ["src/core", "src/sources/github.ts", "src/sources/shared.ts", "web/src"]
 }

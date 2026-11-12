@@ -13,6 +13,13 @@ const TREE_URL = `https://api.github.com/repos/o/r/git/trees/${SHA}?recursive=1`
 const raw = (path: string): string => `https://raw.githubusercontent.com/o/r/${SHA}/${path}`;
 const LONG_README = `# Demo\n\n${'This project does something useful. '.repeat(10)}`;
 
+interface Call {
+  url: string;
+  headers: Record<string, string>;
+  credentials: string;
+  referrerPolicy: string;
+}
+
 interface Probe {
   bytes: number;
   cancelled: boolean;
@@ -59,11 +66,11 @@ function reply(route: Route): HttpResponse {
 }
 
 /** Routes by URL. The commit lookup answers with SHA unless a test overrides it. */
-function fake(routes: Record<string, Route | Error>): { fetcher: Fetcher; calls: Array<{ url: string; headers: Record<string, string> }> } {
+function fake(routes: Record<string, Route | Error>): { fetcher: Fetcher; calls: Call[] } {
   const all: Record<string, Route | Error> = { [COMMIT_URL]: { body: SHA }, ...routes };
-  const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+  const calls: Call[] = [];
   const fetcher: Fetcher = async (url, init) => {
-    calls.push({ url, headers: init.headers });
+    calls.push({ url, headers: init.headers, credentials: init.credentials, referrerPolicy: init.referrerPolicy });
     const route = all[url];
     if (route instanceof Error) throw route;
     return reply(route ?? { status: 404 });
@@ -326,6 +333,36 @@ test('REGRESSION: names and notes cannot become automatic links in plain text', 
     assert.ok(!/www\.|:\/\/|@(?=[A-Za-z0-9-]+\.)/.test(visible), `autolink trigger left in: ${visible}`);
   }
   assert.ok(out.includes('https://choosealicense.com/'), 'trusted hint URL must stay clickable');
+});
+
+test('browser mode sends only an Accept header (no preflight) and never credentials or a referrer', async () => {
+  const { fetcher, calls } = fake({ [TREE_URL]: { body: tree([blob('README.md')]) }, [raw('README.md')]: { body: 'x' } });
+  await readGithubRepo(TARGET, fetcher, { client: 'browser' });
+  assert.equal(calls.length, 3);
+  for (const call of calls) {
+    assert.ok(Object.keys(call.headers).every((name) => name.toLowerCase() === 'accept'), `${call.url}: ${Object.keys(call.headers)}`);
+    assert.equal(call.credentials, 'omit');
+    assert.equal(call.referrerPolicy, 'no-referrer');
+  }
+  assert.equal(calls[0]?.headers.Accept, 'application/vnd.github.sha');
+  assert.equal(calls[1]?.headers.Accept, 'application/vnd.github+json');
+});
+
+test('node mode also never sends credentials or a referrer', async () => {
+  const { fetcher, calls } = fake({ [TREE_URL]: { body: tree([blob('README.md')]) }, [raw('README.md')]: { body: 'x' } });
+  await readGithubRepo(TARGET, fetcher);
+  assert.ok(calls.every((call) => call.credentials === 'omit' && call.referrerPolicy === 'no-referrer'));
+});
+
+test('the remaining request allowance is passed on when GitHub reports it', async () => {
+  const withHeader = fake({ [TREE_URL]: { body: tree([]), headers: { 'x-ratelimit-remaining': '41' } } });
+  assert.equal((await readGithubRepo(TARGET, withHeader.fetcher)).apiRemaining, 41);
+  const without = fake({ [TREE_URL]: { body: tree([]) } });
+  assert.equal((await readGithubRepo(TARGET, without.fetcher)).apiRemaining, undefined);
+});
+
+test('a browser-style blocked redirect (status 0) is reported as a move, not as HTTP 0', async () => {
+  await assert.rejects(readGithubRepo(TARGET, fake({ [COMMIT_URL]: { status: 0 } }).fetcher, { client: 'browser' }), /redirect; the repository may have been renamed or moved/);
 });
 
 test('a report whose link base is not a pinned GitHub URL gets no links', () => {

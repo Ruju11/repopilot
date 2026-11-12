@@ -41,7 +41,18 @@ export interface HttpResponse {
 export interface HttpInit {
   headers: Record<string, string>;
   redirect: 'manual';
+  /** Never send cookies or other credentials. */
+  credentials: 'omit';
+  referrerPolicy: 'no-referrer';
   signal: AbortSignal;
+}
+
+export interface ReadOptions {
+  /**
+   * "browser" sends only the Accept header, which a browser may set without a CORS preflight
+   * (User-Agent cannot be set by a page, and X-GitHub-Api-Version would trigger a preflight).
+   */
+  client?: 'node' | 'browser';
 }
 
 export type Fetcher = (url: string, init: HttpInit) => Promise<HttpResponse>;
@@ -115,7 +126,13 @@ async function fetchText(
   maxBytes: number,
 ): Promise<Reply> {
   try {
-    const response = await fetcher(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const response = await fetcher(url, {
+      headers,
+      redirect: 'manual',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
     const reply = {
       status: response.status,
       ok: response.ok,
@@ -141,6 +158,8 @@ function httpError(reply: Reply, repoName: string): Error {
     return new Error(`GitHub's limit of 60 unauthenticated requests per hour was reached.${when} RepoPilot does not use a token.`);
   }
   switch (reply.status) {
+    case 0: // a browser reports a blocked redirect as status 0
+      return new Error('GitHub answered with a redirect; the repository may have been renamed or moved.');
     case 404:
       return new Error(`${repoName} was not found, or it is private. Only public repositories are supported.`);
     case 301:
@@ -185,14 +204,18 @@ function parseTree(body: string): { entries: TreeEntry[]; truncated: boolean } {
 }
 
 /** Builds a snapshot of a public repository's default branch, pinned to one commit. Read-only. */
-export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = defaultFetcher): Promise<RepoSnapshot> {
+export async function readGithubRepo(
+  target: GithubTarget,
+  fetcher: Fetcher = defaultFetcher,
+  options: ReadOptions = {},
+): Promise<RepoSnapshot> {
   const name = `${target.owner}/${target.repo}`;
   const notes: string[] = [];
-  const apiHeaders = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': 'repopilot',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
+  const browser = options.client === 'browser';
+  const apiHeaders: Record<string, string> = browser
+    ? { Accept: 'application/vnd.github+json' }
+    : { Accept: 'application/vnd.github+json', 'User-Agent': 'repopilot', 'X-GitHub-Api-Version': '2022-11-28' };
+  const rawHeaders: Record<string, string> = browser ? {} : { 'User-Agent': 'repopilot' };
 
   // Resolve the default branch to a commit once; everything below is pinned to it.
   const head = await fetchText(
@@ -234,7 +257,7 @@ export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = de
   const contents: Record<string, string> = {};
   for (const file of wanted.slice(0, MAX_TEXT_FILES)) {
     try {
-      const raw = await fetchText(fetcher, `${RAW}/${name}/${sha}/${encodePath(file)}`, { 'User-Agent': 'repopilot' }, MAX_TEXT_BYTES);
+      const raw = await fetchText(fetcher, `${RAW}/${name}/${sha}/${encodePath(file)}`, rawHeaders, MAX_TEXT_BYTES);
       if (raw.tooLarge) {
         notes.push(`${clean(file)} is larger than ${MAX_TEXT_BYTES / 1024} KB and was not read.`);
       } else if (!raw.ok) {
@@ -253,5 +276,6 @@ export async function readGithubRepo(target: GithubTarget, fetcher: Fetcher = de
     contents,
     notes,
     urlBase: `https://github.com/${name}/blob/${sha}/`,
+    apiRemaining: Number.isFinite(left) ? left : undefined,
   };
 }

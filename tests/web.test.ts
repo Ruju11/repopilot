@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { analyze } from '../src/core/analyze.ts';
-import { createStaticServer, resolveServable, resolveStatic } from '../scripts/serve.ts';
+import { createStaticServer, CSP, resolveServable, resolveStatic } from '../scripts/serve.ts';
 import { SAMPLES } from '../web/src/samples.ts';
 import { toView } from '../web/src/view.ts';
 
@@ -56,23 +56,74 @@ test('demo code never parses HTML or runs strings as code', () => {
   }
 });
 
-test('the page is locked down: strict policy, no network, no inline code or handlers', () => {
-  const html = readFileSync(join(webDir, 'index.html'), 'utf8');
-  const policy = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? '';
-  for (const rule of ["default-src 'none'", "script-src 'self'", "connect-src 'none'", "base-uri 'none'", "form-action 'none'", "img-src 'none'"]) {
-    assert.ok(policy.includes(rule), rule);
+const html = readFileSync(join(webDir, 'index.html'), 'utf8');
+const metaPolicy = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? '';
+
+function directives(policy: string): Map<string, string[]> {
+  return new Map(
+    policy
+      .split(';')
+      .map((part) => part.trim())
+      .filter((part) => part !== '')
+      .map((part): [string, string[]] => {
+        const [name = '', ...values] = part.split(/\s+/);
+        return [name, values];
+      }),
+  );
+}
+
+test('the page policy allows connections to exactly two GitHub hosts and nothing else', () => {
+  const policy = directives(metaPolicy);
+  assert.deepEqual(policy.get('connect-src'), ['https://api.github.com', 'https://raw.githubusercontent.com']);
+  for (const name of ['default-src', 'img-src', 'base-uri', 'form-action']) {
+    assert.deepEqual(policy.get(name), ["'none'"], name);
   }
-  assert.ok(!/unsafe-inline|unsafe-eval|https?:/.test(policy));
+  assert.deepEqual(policy.get('script-src'), ["'self'"]);
+  assert.deepEqual(policy.get('style-src'), ["'self'"]);
+  for (const [name, values] of policy) {
+    if (name === 'connect-src') continue;
+    assert.ok(values.every((value) => !/[*:]|unsafe-|data|blob/.test(value.replace("'self'", '').replace("'none'", ''))), `${name}: ${values.join(' ')}`);
+  }
+});
+
+test('the server header and the page meta policy are the same, apart from frame-ancestors', () => {
+  const header = directives(CSP);
+  assert.deepEqual(header.get('frame-ancestors'), ["'none'"]);
+  header.delete('frame-ancestors');
+  assert.deepEqual([...header], [...directives(metaPolicy)]);
+});
+
+test('the page has no inline code, inline handlers or external resources', () => {
   assert.ok(!/<script(?![^>]*\bsrc=)/i.test(html), 'inline script');
   assert.ok(!/\son\w+\s*=/i.test(html), 'inline event handler');
   assert.ok(!/(?:src|href)\s*=\s*"(?:https?:)?\/\//i.test(html), 'external resource');
+  assert.match(html, /<meta name="referrer" content="no-referrer">/);
 });
 
-test('the demo intro describes sample evidence as file names and makes no claim of links', () => {
-  const html = readFileSync(join(webDir, 'index.html'), 'utf8');
+test('the page text is honest about network use and about sample evidence', () => {
+  assert.match(html, /Your browser contacts GitHub directly[^]*read-only and without a token[^]*Nothing is sent to any other server/);
+  assert.match(html, /a scan uses 2/);
+  assert.match(html, /Sample reports use <strong>synthetic data<\/strong> and make no network requests/);
   assert.match(html, /Evidence column shows the <strong>file names<\/strong> a check matched, as plain text/);
   assert.match(html, /no link is made because no real repository is behind them/);
   assert.doesNotMatch(html, /linked to its source/i);
+  assert.doesNotMatch(html, /This demo[^.]*no network requests/i);
+});
+
+test('the browser code has one audited network path and no credentials, storage or other channels', () => {
+  const sources = [...readdirSync(join(webDir, 'src')).map((name) => join(webDir, 'src', name)), join(webDir, '..', 'src', 'sources', 'github.ts')];
+  const other = /Authorization|process\.env|localStorage|sessionStorage|indexedDB|document\.cookie|XMLHttpRequest|WebSocket|sendBeacon|EventSource|importScripts|serviceWorker/;
+  for (const file of sources) {
+    assert.ok(!other.test(readFileSync(file, 'utf8')), file);
+  }
+  for (const file of sources.slice(0, -1)) {
+    assert.ok(!/\bfetch\s*\(/.test(readFileSync(file, 'utf8')), `${file} must not call fetch directly`);
+  }
+  const github = readFileSync(sources.at(-1) ?? '', 'utf8');
+  assert.equal(github.match(/\bfetch\s*\(/g)?.length, 1, 'one fetch call in the GitHub source');
+  const main = readFileSync(join(webDir, 'src', 'main.ts'), 'utf8');
+  assert.ok(main.indexOf('parseGithubTarget(') > -1 && main.indexOf('parseGithubTarget(') < main.indexOf('readGithubRepo('), 'input is validated before the scan');
+  assert.match(main, /client: 'browser'/);
 });
 
 // --- static server: normal behaviour (needs no links, so it always runs) ---
@@ -103,7 +154,7 @@ test('POSITIVE over HTTP: a normal file is served with security headers (no link
     assert.equal(await ok.text(), 'body{}');
     assert.equal(ok.headers.get('content-type'), 'text/css; charset=utf-8');
     assert.equal(ok.headers.get('x-content-type-options'), 'nosniff');
-    assert.match(ok.headers.get('content-security-policy') ?? '', /connect-src 'none'/);
+    assert.equal(ok.headers.get('content-security-policy'), CSP);
     assert.equal((await fetch(`${base}/missing.css`)).status, 404);
     assert.equal((await fetch(`${base}/ok.css`, { method: 'POST' })).status, 404);
   });
