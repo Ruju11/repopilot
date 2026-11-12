@@ -8,7 +8,7 @@ import { analyze } from '../src/core/analyze.ts';
 import { createStaticServer, CSP, resolveServable, resolveStatic } from '../scripts/serve.ts';
 import { SAMPLES } from '../web/src/samples.ts';
 import { fixtureOrSkip } from './support.ts';
-import { toView } from '../web/src/view.ts';
+import { explainError, groupRows, toView } from '../web/src/view.ts';
 
 const webDir = join(import.meta.dirname, '..', 'web');
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -46,6 +46,78 @@ test('links appear only for a GitHub URL pinned to a full commit SHA', () => {
     const view = toView({ ...report, urlBase });
     assert.ok(view.rows.every((row) => row.evidence.every((item) => item.href === undefined)), String(urlBase));
   }
+});
+
+test('findings are grouped most urgent first, and empty groups are left out', () => {
+  const bare = groupRows(toView(analyze(sample('bare').snapshot)).rows);
+  assert.deepEqual(bare.map((group) => group.status), ['fail', 'warn']);
+  assert.equal(bare.reduce((total, group) => total + group.rows.length, 0), 12);
+  const well = groupRows(toView(analyze(sample('well-kept').snapshot)).rows);
+  assert.deepEqual(well.map((group) => group.heading), ['Passed']);
+});
+
+test('the scanned-commit link exists only for a pinned GitHub URL', () => {
+  const report = analyze(sample('bare').snapshot);
+  assert.equal(toView(report).commitHref, undefined);
+  assert.equal(toView({ ...report, urlBase: 'https://github.com/o/r/blob/HEAD/' }).commitHref, undefined);
+  assert.equal(toView({ ...report, urlBase: `https://github.com/o/r/blob/${SHA}/` }).commitHref, `https://github.com/o/r/commit/${SHA}`);
+});
+
+test('scan errors get a title and a next step; retry is offered only when it can help', () => {
+  const cases: Array<[string, string, boolean]> = [
+    ['o/r was not found, or it is private. Only public repositories are supported.', 'Repository not found', false],
+    ["GitHub's limit of 60 unauthenticated requests per hour was reached.", "GitHub's request limit was reached", false],
+    ['Could not reach GitHub (ECONNRESET).', 'Could not reach GitHub', true],
+    ['GitHub answered with a redirect; the repository may have been renamed or moved.', 'The repository has moved', false],
+    ['GitHub refused the request (HTTP 403).', 'GitHub refused the request (HTTP 403)', false],
+    ['GitHub sent a response RepoPilot could not read.', "GitHub's answer could not be used", true],
+    ['something unexpected', 'The scan failed', true],
+  ];
+  for (const [message, title, retry] of cases) {
+    const view = explainError(message);
+    assert.equal(view.title, title, message);
+    assert.equal(view.retry, retry, message);
+    assert.ok(view.advice.length > 10);
+  }
+});
+
+test('the rate-limit advice gives the reset time only when GitHub reported one, in local time', () => {
+  const iso = '2030-03-17T08:46:40.000Z';
+  const local = new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const base = "GitHub's limit of 60 unauthenticated requests per hour was reached.";
+  const withTime = explainError(`${base} Resets at ${iso}. RepoPilot does not use a token.`);
+  assert.ok(withTime.advice.includes(`You can scan again after ${local} (your local time).`), withTime.advice);
+  const without = explainError(`${base} RepoPilot does not use a token.`);
+  assert.match(without.advice, /did not say when the limit resets; it is usually within an hour/);
+  const broken = explainError(`${base} Resets at 2030-99-99T99:99:99.000Z.`);
+  assert.match(broken.advice, /did not say when the limit resets/);
+  for (const view of [withTime, without, broken]) {
+    assert.doesNotMatch(view.advice, /given below|Invalid Date/);
+    assert.equal(view.retry, false);
+  }
+});
+
+test('a plain HTTP 403 explains the likely causes and offers no immediate retry', () => {
+  const view = explainError('GitHub refused the request (HTTP 403).');
+  assert.equal(view.retry, false);
+  assert.match(view.advice, /too many arrive in a short time/);
+  assert.match(view.advice, /Wait a few minutes/);
+  assert.match(view.advice, /open the repository on github\.com/);
+});
+
+test('the page keeps its accessibility structure', () => {
+  assert.match(html, /<html lang="en">/);
+  assert.match(html, /class="skip-link" href="#scan"/);
+  assert.match(html, /<nav aria-label="Main">/);
+  assert.equal(html.match(/<h1[ >]/g)?.length, 1);
+  assert.match(html, /<label for="repo">/);
+  assert.match(html, /aria-describedby="repo-hint repo-error"/);
+  assert.match(html, /id="live-status" role="status"/);
+  const css = readFileSync(join(webDir, 'style.css'), 'utf8');
+  assert.match(css, /prefers-reduced-motion: reduce/);
+  assert.match(css, /prefers-color-scheme: dark/);
+  assert.match(css, /:focus-visible/);
+  assert.ok(!/url\(|@import|gradient|backdrop-filter/.test(css), 'no external loads, gradients or glass effects');
 });
 
 test('demo code never parses HTML or runs strings as code', () => {
