@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>RepoPilot demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>RepoPilot</h1>
+    <p>Repository readiness checks, each finding linked to its source. This demo runs on <strong>synthetic sample data</strong> in your browser. It reads no repository and makes no network requests.</p>
+    <div class="controls">
+      <label for="sample">Sample repository</label>
+      <select id="sample"></select>
+      <button id="run" type="button">Run checks</button>
+    </div>
+    <p id="description"></p>
+    <section id="result" aria-live="polite"></section>
+  </main>
+  <script type="module" src="dist/web/src/main.js"></script>
+</body>
+</html>

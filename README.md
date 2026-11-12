@@ -18,6 +18,14 @@ GitHub targets are **public** repositories, read through GitHub's unauthenticate
 
 File names come from untrusted repositories. In Markdown output they are escaped and shown in code spans, and links are built only from a validated GitHub URL pinned to the commit. Anything that renders a report in a browser should show the structured JSON fields as plain text, not as HTML.
 
+## Demo (sample data, local only)
+
+```
+npm run demo     # builds web/dist, serves http://127.0.0.1:4173/
+```
+
+The page runs the same checks in the browser on three synthetic samples, one of them with hostile file names. It makes no network requests: the page's Content-Security-Policy sets `connect-src 'none'`, `script-src 'self'` and no inline code. All report text is placed with `textContent`; no HTML is ever parsed, and a test fails if `innerHTML` and similar calls appear in the demo code. Live GitHub scans are not part of the demo yet; adding them will need a deliberate policy change and a review. The demo has not been deployed.
+
 ## Development
 
 ```
