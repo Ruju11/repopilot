@@ -4,39 +4,86 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'">
   <title>RepoPilot demo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main>
-    <h1>RepoPilot</h1>
-    <p>Repository readiness checks. Scan a public GitHub repository, or look at the synthetic samples further down.</p>
+  <a class="skip-link" href="#scan">Skip to the scan form</a>
 
-    <section aria-labelledby="live-title">
-      <h2 id="live-title">Scan a public GitHub repository</h2>
-      <p>Your browser contacts GitHub directly (<code>api.github.com</code> and <code>raw.githubusercontent.com</code>), read-only and without a token. Nothing is sent to any other server. GitHub allows 60 requests per hour per IP address; a scan uses 2. Results come from the repository's default branch at one commit, and every file name is shown as text.</p>
-      <form id="live-form" class="controls" novalidate>
-        <label for="repo">Repository (owner/repo)</label>
-        <input id="repo" name="repo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="140" placeholder="octocat/Hello-World" aria-describedby="live-status">
-        <button id="scan" type="submit">Scan</button>
+  <header class="site-header">
+    <div class="wrap bar">
+      <a class="wordmark" href="#top">RepoPilot</a>
+      <nav aria-label="Main">
+        <ul class="nav-list">
+          <li><a href="#scan">Scan</a></li>
+          <li><a href="#samples">Samples</a></li>
+          <li><a href="#about">What it checks</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top" class="wrap">
+    <section class="intro" aria-labelledby="page-title">
+      <h1 id="page-title">Check a public repository for the basics</h1>
+      <p class="lead">RepoPilot looks for a README, licence, security policy, CI configuration and other common project files, and shows which file each result is based on.</p>
+    </section>
+
+    <section id="scan" aria-labelledby="scan-title">
+      <h2 id="scan-title">Scan a public GitHub repository</h2>
+      <p class="note">Your browser contacts GitHub directly (<code>api.github.com</code> and <code>raw.githubusercontent.com</code>), read-only and without a token. Nothing is sent to any other server. GitHub allows 60 requests per hour per IP address; a scan uses 2 or 3. Results come from the repository's default branch at one commit, and every file name is shown as text.</p>
+      <form id="live-form" novalidate>
+        <label for="repo">Repository</label>
+        <p id="repo-hint" class="hint">Enter <code>owner/repo</code> or a github.com URL. Press <kbd>/</kbd> to jump here.</p>
+        <div class="field-row">
+          <input id="repo" name="repo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="140" placeholder="octocat/Hello-World" aria-describedby="repo-hint repo-error">
+          <button id="scan-button" type="submit" class="button primary">Scan repository</button>
+        </div>
+        <p id="repo-error" class="field-error" hidden></p>
+        <p class="examples">Try an example:
+          <button type="button" class="button link" data-repo="octocat/Hello-World">octocat/Hello-World</button>
+          <button type="button" class="button link" data-repo="octocat/Spoon-Knife">octocat/Spoon-Knife</button>
+        </p>
       </form>
-      <p id="live-status" role="status"></p>
+      <p id="live-status" role="status" class="hint"></p>
       <div id="live-result"></div>
     </section>
 
-    <section aria-labelledby="sample-title">
+    <section id="samples" aria-labelledby="sample-title">
       <h2 id="sample-title">Sample reports</h2>
       <p>Sample reports use <strong>synthetic data</strong> and make no network requests. In these sample reports the Evidence column shows the <strong>file names</strong> a check matched, as plain text; no link is made because no real repository is behind them.</p>
-      <div class="controls">
+      <div class="field-row">
         <label for="sample">Sample repository</label>
         <select id="sample"></select>
-        <button id="run" type="button">Run checks</button>
+        <button id="run" type="button" class="button">Run checks</button>
       </div>
-      <p id="description"></p>
+      <p id="description" class="hint"></p>
       <div id="result" aria-live="polite"></div>
     </section>
+
+    <section id="about" aria-labelledby="about-title">
+      <h2 id="about-title">What it checks, and what it does not</h2>
+      <p>Each check looks for files in standard places. The list below is generated from the same checks the scan runs.</p>
+      <dl id="check-list" class="checks"></dl>
+      <h3>Limits</h3>
+      <ul>
+        <li>A passing README check means a README file exists. It says nothing about quality.</li>
+        <li>Licence detection is a keyword match on the licence text, not a legal check.</li>
+        <li>It does not read source code, find vulnerabilities, or support private repositories.</li>
+        <li>A project that keeps these files elsewhere will show a warning.</li>
+      </ul>
+    </section>
   </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>MIT licence. RepoPilot never runs code from a scanned repository.</p>
+      <p id="source-link"></p>
+    </div>
+  </footer>
+
   <script type="module" src="dist/web/src/main.js"></script>
 </body>
 </html>

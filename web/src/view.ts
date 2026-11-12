@@ -25,8 +25,23 @@ export interface RowView {
 export interface ReportView {
   origin: string;
   summary: string;
+  /** Link to the scanned commit; only for a pinned GitHub URL. */
+  commitHref?: string;
   rows: RowView[];
   notes: string[];
+}
+
+export interface GroupView {
+  status: Status;
+  heading: string;
+  rows: RowView[];
+}
+
+export interface ErrorView {
+  title: string;
+  advice: string;
+  /** True when trying again is reasonable without changing the input. */
+  retry: boolean;
 }
 
 const LABEL: Record<Status, string> = {
@@ -36,12 +51,23 @@ const LABEL: Record<Status, string> = {
   'not-applicable': 'N/A',
 };
 
+/** Most urgent first. */
+export const STATUS_ORDER: readonly Status[] = ['fail', 'warn', 'pass', 'not-applicable'];
+
+export const STATUS_HEADING: Record<Status, string> = {
+  fail: 'Failed',
+  warn: 'Warnings',
+  pass: 'Passed',
+  'not-applicable': 'Not applicable',
+};
+
 export function toView(report: Report): ReportView {
   const base = isTrustedUrlBase(report.urlBase) ? report.urlBase : undefined;
   const { summary } = report;
   return {
     origin: clean(report.origin),
     summary: `${summary.pass} passed, ${summary.warn} warnings, ${summary.fail} failed, ${summary['not-applicable']} not applicable`,
+    ...(base === undefined ? {} : { commitHref: base.replace('/blob/', '/commit/').replace(/\/$/, '') }),
     rows: report.findings.map((finding) => ({
       status: finding.status,
       label: LABEL[finding.status],
@@ -56,4 +82,36 @@ export function toView(report: Report): ReportView {
     })),
     notes: report.notes.map(clean),
   };
+}
+
+/** Groups rows by status, most urgent first, leaving out empty groups. */
+export function groupRows(rows: RowView[]): GroupView[] {
+  return STATUS_ORDER.map((status) => ({
+    status,
+    heading: STATUS_HEADING[status],
+    rows: rows.filter((row) => row.status === status),
+  })).filter((group) => group.rows.length > 0);
+}
+
+/** Turns a scan error message into a title and a next step. The message itself is shown as detail. */
+export function explainError(message: string): ErrorView {
+  if (/was not found, or it is private/.test(message)) {
+    return { title: 'Repository not found', advice: 'Check the spelling of the owner and the repository name. Private repositories are not supported.', retry: false };
+  }
+  if (/limit of 60 unauthenticated requests/.test(message)) {
+    return { title: "GitHub's request limit was reached", advice: 'GitHub counts requests per IP address and resets the count every hour. Try again after the time given below.', retry: false };
+  }
+  if (/Could not reach GitHub/.test(message)) {
+    return { title: 'Could not reach GitHub', advice: 'Check your internet connection, then try again.', retry: true };
+  }
+  if (/moved or been renamed|redirect/.test(message)) {
+    return { title: 'The repository has moved', advice: 'Enter the repository under its new name.', retry: false };
+  }
+  if (/refused the request/.test(message)) {
+    return { title: 'GitHub refused the request', advice: 'Wait a minute and try again. If it keeps happening, the repository may restrict access.', retry: true };
+  }
+  if (/could not read|too large to read|HTTP 5\d\d/.test(message)) {
+    return { title: "GitHub's answer could not be used", advice: 'Try again later. A very large repository may be too big for this demo.', retry: true };
+  }
+  return { title: 'The scan failed', advice: 'Try again. If it keeps failing, check the repository name.', retry: true };
 }
