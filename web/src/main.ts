@@ -3,12 +3,27 @@ import { clean } from '../../src/core/text.ts';
 import type { Status } from '../../src/core/types.ts';
 import { parseGithubTarget, readGithubRepo } from '../../src/sources/github.ts';
 import { SAMPLES } from './samples.ts';
-import { explainError, groupRows, STATUS_HEADING, STATUS_ORDER, toView, type ReportView, type RowView } from './view.ts';
+import { explainError, groupFilesByTopFolder, groupRows, STATUS_HEADING, STATUS_ORDER, toView, type ReportView, type RowView } from './view.ts';
 
 /*
  * Everything is built with createElement and textContent: no HTML string is ever parsed.
  * The only network path is readGithubRepo (unauthenticated, read-only, two allowed hosts).
  */
+
+// Frame guard. The static host cannot send a frame-ancestors header, so the page refuses to
+// work inside another site's frame (clickjacking defence). It runs before any other code.
+if (window.top !== window.self) {
+  const notice = document.createElement('p');
+  notice.textContent = 'RepoPilot does not run inside another page. Open it in its own tab: ';
+  const link = document.createElement('a');
+  link.href = window.location.href;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = window.location.href;
+  notice.append(link);
+  document.body.replaceChildren(notice);
+  throw new Error('RepoPilot does not run inside a frame.');
+}
 
 function make<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -97,15 +112,7 @@ function repositoryMap(files: readonly string[]): HTMLElement {
   section.append(make('h4', 'Repository map'), make('p', `${files.length.toLocaleString()} files in the scan snapshot`, 'hint'));
   if (files.length === 0) return section;
 
-  // Group by the first directory. An empty key holds files at the root.
-  const groups = new Map<string, string[]>();
-  for (const path of files) {
-    const slash = path.indexOf('/');
-    const key = slash === -1 ? '' : path.slice(0, slash);
-    const group = groups.get(key);
-    if (group === undefined) groups.set(key, [path]);
-    else group.push(path);
-  }
+  const groups = groupFilesByTopFolder(files);
 
   const label = make('label', 'Browse top-level folders');
   const select = make('select');

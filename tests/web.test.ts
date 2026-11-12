@@ -8,7 +8,7 @@ import { analyze } from '../src/core/analyze.ts';
 import { createStaticServer, CSP, resolveServable, resolveStatic } from '../scripts/serve.ts';
 import { SAMPLES } from '../web/src/samples.ts';
 import { fixtureOrSkip } from './support.ts';
-import { explainError, groupRows, toView } from '../web/src/view.ts';
+import { explainError, groupFilesByTopFolder, groupRows, toView } from '../web/src/view.ts';
 
 const webDir = join(import.meta.dirname, '..', 'web');
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -103,6 +103,41 @@ test('a plain HTTP 403 explains the likely causes and offers no immediate retry'
   assert.match(view.advice, /too many arrive in a short time/);
   assert.match(view.advice, /Wait a few minutes/);
   assert.match(view.advice, /open the repository on github\.com/);
+});
+
+test('the repository map groups files by top folder and survives hostile names', () => {
+  const groups = groupFilesByTopFolder(['README.md', 'src/a.ts', 'src/deep/b.ts', '.github/workflows/ci.yml', 'LICENSE']);
+  assert.deepEqual([...groups.keys()].sort(), ['', '.github', 'src']);
+  assert.deepEqual(groups.get(''), ['README.md', 'LICENSE']);
+  assert.deepEqual(groups.get('src'), ['src/a.ts', 'src/deep/b.ts']);
+  assert.equal(groupFilesByTopFolder([]).size, 0);
+
+  const hostile = groupFilesByTopFolder(['__proto__/x', 'constructor/y', 'toString', '<img src=x onerror=alert(1)>/z', '/leading', 'a//b']);
+  assert.deepEqual(hostile.get('__proto__'), ['__proto__/x']);
+  assert.deepEqual(hostile.get('constructor'), ['constructor/y']);
+  assert.deepEqual(hostile.get('<img src=x onerror=alert(1)>'), ['<img src=x onerror=alert(1)>/z']);
+  assert.deepEqual(hostile.get(''), ['toString', '/leading']);
+  assert.equal(Object.getPrototypeOf({}), Object.prototype);
+  assert.equal(([] as unknown as Record<string, unknown>).x, undefined);
+  let total = 0;
+  for (const paths of hostile.values()) total += paths.length;
+  assert.equal(total, 6);
+});
+
+test('the repository map shows names as text and the page refuses to run inside a frame', () => {
+  const main = readFileSync(join(webDir, 'src', 'main.ts'), 'utf8');
+  const map = main.slice(main.indexOf('function repositoryMap'), main.indexOf('function renderReport'));
+  assert.ok(map.length > 200);
+  assert.match(map, /make\('code', clean\(path\)\)/);
+  assert.match(map, /clean\(folder\)/);
+  assert.ok(!/\.href|make\('a'/.test(map), 'the map creates no links');
+
+  const guard = main.indexOf('if (window.top !== window.self)');
+  assert.ok(guard > -1, 'frame guard present');
+  for (const later of ['function make', 'parseGithubTarget(', 'readGithubRepo(', 'addEventListener(']) {
+    assert.ok(guard < main.indexOf(later), `frame guard runs before ${later}`);
+  }
+  assert.match(main.slice(guard, guard + 700), /document\.body\.replaceChildren\(notice\);\s+throw new Error/);
 });
 
 test('the page keeps its accessibility structure', () => {
