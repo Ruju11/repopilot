@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { run } from '../src/cli/main.ts';
 import { readLocalRepo, type DirEntry, type LocalFs } from '../src/sources/local.ts';
+import { fixtureOrSkip } from './support.ts';
 
 const temp = mkdtempSync(join(tmpdir(), 'repopilot-'));
 after(() => rmSync(temp, { recursive: true, force: true }));
@@ -100,10 +101,9 @@ test('real symbolic links and junctions are not followed and are reported', (t) 
   } catch {
     // not permitted on this system
   }
-  if (links === 0) {
-    t.skip('cannot create links on this system');
-    return;
-  }
+  // Locally, either kind of link is enough to run; in CI (REQUIRE_LINK_TESTS=1) both must exist.
+  const needed = process.env.REQUIRE_LINK_TESTS === '1' ? links === 2 : links > 0;
+  if (!fixtureOrSkip(t, needed, 'cannot create both a folder link and a file link on this system')) return;
   const snapshot = readLocalRepo(repo);
   assert.deepEqual(snapshot.files, ['README.md']);
   assert.ok(snapshot.notes.includes(`${links} symbolic link(s) were not followed.`), snapshot.notes.join(' | '));

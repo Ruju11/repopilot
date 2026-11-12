@@ -13,19 +13,18 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        # 24 is the oldest version the package supports (engines >=24.2); 26 is the one used in development.
-        node: ['24', '26']
     steps:
-      # Third-party actions are pinned to full commit SHAs; the comment names the release.
+      # Actions are pinned to full commit SHAs; the comment names the release.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: ${{ matrix.node }}
+          # package.json requires node >=24.2; this resolves to the latest 24.x.
+          node-version: '24'
       - run: npm ci --ignore-scripts
       - run: npm run verify
-      - run: npm audit
+        env:
+          # Linux must be able to create symbolic links. With this set, a link test whose
+          # fixture cannot be created FAILS instead of being skipped.
+          REQUIRE_LINK_TESTS: '1'

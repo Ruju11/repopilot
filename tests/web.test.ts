@@ -7,6 +7,7 @@ import { after, test } from 'node:test';
 import { analyze } from '../src/core/analyze.ts';
 import { createStaticServer, CSP, resolveServable, resolveStatic } from '../scripts/serve.ts';
 import { SAMPLES } from '../web/src/samples.ts';
+import { fixtureOrSkip } from './support.ts';
 import { toView } from '../web/src/view.ts';
 
 const webDir = join(import.meta.dirname, '..', 'web');
@@ -182,7 +183,7 @@ const rootLink = makeLink(root, join(temp, 'web-link'), 'junction');
 const leaksThrough = (path: string): void => assert.equal(readFileSync(path, 'utf8'), 'TOP-SECRET');
 
 test('REGRESSION: a folder link inside web/ cannot serve a file outside it', async (t) => {
-  if (!dirLink) return t.skip('could not create the folder link fixture');
+  if (!fixtureOrSkip(t, dirLink, 'could not create the folder link fixture')) return;
   leaksThrough(join(root, 'dir-link', 'secret.css'));
   assert.ok(resolveStatic(root, '/dir-link/secret.css'), 'the name-only check is fooled by links');
   assert.equal(resolveServable(root, '/dir-link/secret.css'), undefined);
@@ -196,7 +197,7 @@ test('REGRESSION: a folder link inside web/ cannot serve a file outside it', asy
 });
 
 test('REGRESSION: a file link inside web/ cannot serve a file outside it', async (t) => {
-  if (!fileLink) return t.skip('could not create the file link fixture');
+  if (!fixtureOrSkip(t, fileLink, 'could not create the file link fixture')) return;
   leaksThrough(join(root, 'file-link.css'));
   assert.ok(resolveStatic(root, '/file-link.css'), 'the name-only check is fooled by links');
   assert.equal(resolveServable(root, '/file-link.css'), undefined);
@@ -208,14 +209,14 @@ test('REGRESSION: a file link inside web/ cannot serve a file outside it', async
 });
 
 test('a web/ folder that is itself a link still serves its own files', (t) => {
-  if (!rootLink) return t.skip('could not create the root link fixture');
+  if (!fixtureOrSkip(t, rootLink, 'could not create the root link fixture')) return;
   assert.equal(readFileSync(join(temp, 'web-link', 'ok.css'), 'utf8'), 'body{}');
   assert.ok(resolveServable(join(temp, 'web-link'), '/ok.css')?.endsWith('ok.css'));
 });
 
 test('REGRESSION: links inside a web/ folder reached through a root link are still refused', (t) => {
-  if (!rootLink) return t.skip('could not create the root link fixture');
-  if (!dirLink) return t.skip('could not create the folder link fixture');
+  if (!fixtureOrSkip(t, rootLink, 'could not create the root link fixture')) return;
+  if (!fixtureOrSkip(t, dirLink, 'could not create the folder link fixture')) return;
   leaksThrough(join(temp, 'web-link', 'dir-link', 'secret.css'));
   assert.equal(resolveServable(join(temp, 'web-link'), '/dir-link/secret.css'), undefined);
 });
