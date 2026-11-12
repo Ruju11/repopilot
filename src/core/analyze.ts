@@ -8,5 +8,11 @@ export function analyze(snapshot: RepoSnapshot): Report {
   for (const finding of findings) {
     summary[finding.status] += 1;
   }
-  return { origin: snapshot.origin, summary, findings };
+  return {
+    origin: snapshot.origin,
+    summary,
+    findings,
+    notes: snapshot.notes,
+    urlBase: snapshot.urlBase,
+  };
 }

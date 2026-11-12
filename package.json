@@ -9,6 +9,12 @@
   },
   "scripts": {
     "check": "node src/cli/main.ts check",
-    "test": "node --test \"tests/**/*.test.ts\""
+    "typecheck": "tsc",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "verify": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
   }
 }

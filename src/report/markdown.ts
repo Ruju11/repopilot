@@ -1,3 +1,4 @@
+import { clean, encodePath } from '../core/text.ts';
 import type { Report, Status } from '../core/types.ts';
 
 const LABEL: Record<Status, string> = {
@@ -7,14 +8,21 @@ const LABEL: Record<Status, string> = {
   'not-applicable': 'N/A',
 };
 
-function cell(text: string): string {
-  return text.replaceAll('|', '\\|').replaceAll(/\r?\n/g, ' ');
+/** Plain text for a table cell or list item: no control characters, backticks or pipes. */
+function plain(text: string): string {
+  return clean(text).replaceAll('`', "'").replaceAll('|', '\\|');
+}
+
+/** Paths come from untrusted repositories: neutralise control characters and backticks. */
+function evidenceLink(path: string, urlBase: string | undefined): string {
+  const label = `\`${clean(path).replaceAll('`', "'")}\``;
+  return urlBase === undefined ? label : `[${label}](${urlBase}${encodePath(path)})`;
 }
 
 export function toMarkdown(report: Report): string {
   const { summary } = report;
   const lines = [
-    `# RepoPilot report: ${report.origin}`,
+    `# RepoPilot report: ${clean(report.origin)}`,
     '',
     `${summary.pass} passed, ${summary.warn} warnings, ${summary.fail} failed, ${summary['not-applicable']} not applicable.`,
     '',
@@ -24,11 +32,15 @@ export function toMarkdown(report: Report): string {
   for (const finding of report.findings) {
     const evidence =
       finding.evidence.length > 0
-        ? finding.evidence.map((path) => `\`${path}\``).join(', ')
-        : `searched: ${finding.searched.join(', ')}`;
-    lines.push(
-      `| ${LABEL[finding.status]} | ${cell(finding.title)} | ${cell(finding.message)} | ${cell(evidence)} |`,
-    );
+        ? finding.evidence.map((path) => evidenceLink(path, report.urlBase)).join(', ').replaceAll('|', '\\|')
+        : plain(`searched: ${finding.searched.join(', ')}`);
+    lines.push(`| ${LABEL[finding.status]} | ${plain(finding.title)} | ${plain(finding.message)} | ${evidence} |`);
+  }
+  if (report.notes.length > 0) {
+    lines.push('', '## Notes', '');
+    for (const note of report.notes) {
+      lines.push(`- ${plain(note)}`);
+    }
   }
   const fixes = report.findings.filter((finding) => finding.hint !== undefined);
   if (fixes.length > 0) {

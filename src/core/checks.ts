@@ -60,7 +60,14 @@ const readme: Check = {
         hint: 'Describe the purpose, setup and usage.',
       };
     }
-    return { ...base, status: 'pass', message: `Found ${first}.`, evidence, searched };
+    const detail = text === undefined ? '' : ` (${text.trim().length} characters)`;
+    return {
+      ...base,
+      status: 'pass',
+      message: `Found ${first}${detail}. Only presence and length are checked; quality is not assessed.`,
+      evidence,
+      searched,
+    };
   },
 };
 
@@ -111,7 +118,7 @@ const license: Check = {
     return {
       ...base,
       status: 'pass',
-      message: `Found ${first}; looks like ${match[0]} (keyword match).`,
+      message: `Found ${first}; keyword match suggests ${match[0]}. This is not a legal validity check.`,
       evidence,
       searched,
     };

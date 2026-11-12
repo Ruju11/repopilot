@@ -7,7 +7,7 @@ const MIT = 'MIT License\n\nPermission is hereby granted, free of charge, to any
 const LONG_README = `# Demo\n\n${'This project does something useful. '.repeat(10)}`;
 
 function snapshot(contents: Record<string, string>, extraFiles: string[] = []): RepoSnapshot {
-  return { origin: 'test', files: [...Object.keys(contents), ...extraFiles], contents };
+  return { origin: 'test', files: [...Object.keys(contents), ...extraFiles], contents, notes: [] };
 }
 
 function finding(repo: RepoSnapshot, id: string): Finding {
@@ -99,6 +99,23 @@ test('a manifest without a lockfile is a warning naming the ecosystem', () => {
 test('a workflow file outside .github/workflows is not CI', () => {
   assert.equal(finding(snapshot({}, ['workflows/ci.yml']), 'ci').status, 'fail');
   assert.equal(finding(snapshot({}, ['.gitlab-ci.yml']), 'ci').status, 'pass');
+});
+
+test('a passing README is not presented as a quality verdict', () => {
+  const result = finding(snapshot({ 'README.md': LONG_README }), 'readme');
+  assert.equal(result.status, 'pass');
+  assert.match(result.message, /Only presence and length are checked; quality is not assessed/);
+});
+
+test('a recognised licence is described as a keyword match, not a legal check', () => {
+  assert.match(finding(snapshot({ LICENSE: MIT }), 'license').message, /keyword match suggests MIT\. This is not a legal validity check/);
+});
+
+test('snapshot notes and link base are carried into the report', () => {
+  const repo = { ...snapshot({}), notes: ['careful'], urlBase: 'https://example.test/blob/HEAD/' };
+  const report = analyze(repo);
+  assert.deepEqual(report.notes, ['careful']);
+  assert.equal(report.urlBase, 'https://example.test/blob/HEAD/');
 });
 
 test('analysis does not change its input and is repeatable', () => {

@@ -1,9 +1,12 @@
 import { analyze } from '../core/analyze.ts';
+import type { Report } from '../core/types.ts';
 import { toMarkdown } from '../report/markdown.ts';
+import { parseGithubTarget, readGithubRepo, type Fetcher } from '../sources/github.ts';
 import { readLocalRepo } from '../sources/local.ts';
 
-const USAGE = `Usage: repopilot check <folder> [--format md|json]
+const USAGE = `Usage: repopilot check <folder | github:owner/repo | https://github.com/owner/repo> [--format md|json]
 
+GitHub targets are public repositories, read without a token (GitHub allows 60 requests per hour per IP address).
 Exit codes: 0 no failed checks, 1 at least one failed check, 2 usage or input error.
 `;
 
@@ -13,7 +16,7 @@ export interface Io {
 }
 
 /** Runs the CLI and returns the exit code. Does not call process.exit. */
-export function run(argv: string[], io: Io): number {
+export async function run(argv: string[], io: Io, fetcher?: Fetcher): Promise<number> {
   const [command, ...rest] = argv;
   if (command !== 'check') {
     io.err(USAGE);
@@ -40,9 +43,13 @@ export function run(argv: string[], io: Io): number {
     return 2;
   }
 
-  let report;
+  let report: Report;
   try {
-    report = analyze(readLocalRepo(target));
+    const isGithub = /^(?:github:|https:\/\/github\.com\/)/i.test(target);
+    const snapshot = isGithub
+      ? await readGithubRepo(parseGithubTarget(target.replace(/^github:/i, '')), fetcher)
+      : readLocalRepo(target);
+    report = analyze(snapshot);
   } catch (error) {
     io.err(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
@@ -53,7 +60,7 @@ export function run(argv: string[], io: Io): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = run(process.argv.slice(2), {
+  process.exitCode = await run(process.argv.slice(2), {
     out: (text) => process.stdout.write(text),
     err: (text) => process.stderr.write(text),
   });
