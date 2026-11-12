@@ -1,4 +1,5 @@
 import { analyze } from '../../src/core/analyze.ts';
+import { clean } from '../../src/core/text.ts';
 import type { Status } from '../../src/core/types.ts';
 import { parseGithubTarget, readGithubRepo } from '../../src/sources/github.ts';
 import { SAMPLES } from './samples.ts';
@@ -25,7 +26,6 @@ function find<T extends Element>(selector: string, type: new () => T): T {
 // ---- report rendering ----
 
 const GLYPH: Record<Status, string> = { fail: '✕', warn: '!', pass: '✓', 'not-applicable': '–' };
-const COUNT_NOUN: Record<Status, string> = { fail: 'failed', warn: 'warnings', pass: 'passed', 'not-applicable': 'not applicable' };
 
 function badge(row: RowView): HTMLElement {
   const badgeNode = make('span', '', `status status-${row.status}`);
@@ -92,8 +92,67 @@ function findingsTable(rows: RowView[]): HTMLElement {
   return wrapper;
 }
 
+function repositoryMap(files: readonly string[]): HTMLElement {
+  const section = make('section', '', 'panel repo-map');
+  section.append(make('h4', 'Repository map'), make('p', `${files.length.toLocaleString()} files in the scan snapshot`, 'hint'));
+  if (files.length === 0) return section;
+
+  // Group by the first directory. An empty key holds files at the root.
+  const groups = new Map<string, string[]>();
+  for (const path of files) {
+    const slash = path.indexOf('/');
+    const key = slash === -1 ? '' : path.slice(0, slash);
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [path]);
+    else group.push(path);
+  }
+
+  const label = make('label', 'Browse top-level folders');
+  const select = make('select');
+  select.id = 'map-folder';
+  label.htmlFor = select.id;
+  const folders = [...groups.keys()].sort();
+  for (const folder of folders) {
+    const name = folder === '' ? 'Root files' : `${clean(folder)}/`;
+    const option = make('option', `${name} (${groups.get(folder)?.length ?? 0})`);
+    option.value = folder;
+    select.append(option);
+  }
+
+  const list = make('ul', '', 'map-files');
+  const shown = make('p', '', 'hint');
+  shown.setAttribute('role', 'status');
+  const more = make('button', 'Show more files', 'button');
+  more.type = 'button';
+  const pageSize = 12;
+  let visible = 0;
+  function appendFiles(): void {
+    const paths = groups.get(select.value) ?? [];
+    for (const path of paths.slice(visible, visible + pageSize)) {
+      const item = make('li');
+      item.append(make('code', clean(path)));
+      list.append(item);
+    }
+    visible = list.childElementCount;
+    shown.textContent = `Showing ${visible.toLocaleString()} of ${paths.length.toLocaleString()} files`;
+    more.hidden = visible >= paths.length;
+  }
+  select.addEventListener('change', () => {
+    visible = 0;
+    list.replaceChildren();
+    appendFiles();
+  });
+  more.addEventListener('click', () => {
+    appendFiles();
+    if (more.hidden) select.focus();
+  });
+  section.append(label, select, list, shown, more);
+  appendFiles();
+  return section;
+}
+
 /** Renders a report and returns its heading so the caller can move focus to it. */
-function renderReport(view: ReportView, target: HTMLElement, extra?: string): HTMLElement {
+function renderReport(view: ReportView, target: HTMLElement, extra?: string, files?: readonly string[]): HTMLElement {
   const title = make('h3', view.origin, 'report-title');
   title.tabIndex = -1;
   const head = make('header', '', 'report-head');
@@ -113,16 +172,20 @@ function renderReport(view: ReportView, target: HTMLElement, extra?: string): HT
   counts.setAttribute('aria-label', 'Result counts');
   for (const status of STATUS_ORDER) {
     const n = view.rows.filter((row) => row.status === status).length;
-    counts.append(make('li', `${n} ${COUNT_NOUN[status]}`, `count count-${status}`));
+    const count = make('li', '', `count count-${status}`);
+    count.append(make('span', STATUS_HEADING[status]), make('strong', String(n)));
+    counts.append(count);
   }
   head.append(counts);
 
   const parts: HTMLElement[] = [head];
+  if (files !== undefined) parts.push(repositoryMap(files));
+  parts.push(make('h4', 'Findings', 'findings-title'));
   for (const group of groupRows(view.rows)) {
     const heading = `${STATUS_HEADING[group.status]} (${group.rows.length})`;
     if (group.status === 'fail' || group.status === 'warn') {
       const section = make('section', '', 'group');
-      section.append(make('h4', heading, 'group-title'), findingsTable(group.rows));
+      section.append(make('h5', heading, 'group-title'), findingsTable(group.rows));
       parts.push(section);
     } else {
       const details = make('details', '', 'group');
@@ -169,7 +232,9 @@ function showSample(): void {
 
 runButton.addEventListener('click', showSample);
 select.addEventListener('change', showSample);
-showSample();
+find('#samples', HTMLDetailsElement).addEventListener('toggle', (event) => {
+  if (event.currentTarget instanceof HTMLDetailsElement && event.currentTarget.open && !sampleResult.hasChildNodes()) showSample();
+});
 
 // ---- what it checks (generated from the same checks the scan runs) ----
 
@@ -247,7 +312,7 @@ async function scan(): Promise<void> {
     const snapshot = await readGithubRepo(target, undefined, { client: 'browser' });
     const view = toView(analyze(snapshot));
     const left = snapshot.apiRemaining === undefined ? undefined : `GitHub requests left this hour: ${snapshot.apiRemaining}`;
-    const heading = renderReport(view, liveResult, left);
+    const heading = renderReport(view, liveResult, left, snapshot.files);
     status.textContent = `Scan finished. ${view.origin}: ${view.summary}.${left === undefined ? '' : ` ${left}.`}`;
     heading.focus();
   } catch (error) {
@@ -298,7 +363,18 @@ repoInput.addEventListener('keydown', (event) => {
 
 showEmpty();
 
-// ---- footer link (a plain navigation link; it makes no request from this page) ----
+// ---- workspace navigation ----
+
+const navLinks = document.querySelectorAll<HTMLAnchorElement>('.nav-list a');
+function updateCurrentLocation(): void {
+  const location = window.location.hash || '#scan';
+  for (const link of navLinks) {
+    if (link.hash === location) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  }
+}
+window.addEventListener('hashchange', updateCurrentLocation);
+updateCurrentLocation();
 
 const sourceLink = make('a', 'Source code on GitHub');
 sourceLink.href = 'https://github.com/Ruju11/repopilot';

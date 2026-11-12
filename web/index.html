@@ -6,34 +6,32 @@
   <meta name="referrer" content="no-referrer">
   <meta name="color-scheme" content="light dark">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src https://api.github.com https://raw.githubusercontent.com; base-uri 'none'; form-action 'none'">
-  <title>RepoPilot demo</title>
+  <title>RepoPilot | Repository overview</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <a class="skip-link" href="#scan">Skip to the scan form</a>
 
-  <header class="site-header">
-    <div class="wrap bar">
-      <a class="wordmark" href="#top">RepoPilot</a>
+  <header class="sidebar">
+      <a class="wordmark" href="#top"><span class="brand-mark" aria-hidden="true">RP</span>RepoPilot</a>
       <nav aria-label="Main">
         <ul class="nav-list">
-          <li><a href="#scan">Scan</a></li>
-          <li><a href="#samples">Samples</a></li>
-          <li><a href="#about">What it checks</a></li>
+          <li><a href="#scan">Scan repository</a></li>
+          <li><a href="#report">Scan report</a></li>
+          <li><a href="#about">Check reference</a></li>
         </ul>
       </nav>
-    </div>
+      <p id="source-link" class="sidebar-source"></p>
   </header>
 
   <main id="top" class="wrap">
     <section class="intro" aria-labelledby="page-title">
-      <h1 id="page-title">Check a public repository for the basics</h1>
-      <p class="lead">RepoPilot looks for a README, licence, security policy, CI configuration and other common project files, and shows which file each result is based on.</p>
+      <h1 id="page-title">Repository overview</h1>
+      <p class="lead">Review a public GitHub repository’s documentation, security policy, CI and project setup.</p>
     </section>
 
-    <section id="scan" aria-labelledby="scan-title">
-      <h2 id="scan-title">Scan a public GitHub repository</h2>
-      <p class="note">Your browser contacts GitHub directly (<code>api.github.com</code> and <code>raw.githubusercontent.com</code>), read-only and without a token. Nothing is sent to any other server. GitHub allows 60 requests per hour per IP address; a scan uses 2 or 3. Results come from the repository's default branch at one commit, and every file name is shown as text.</p>
+    <section id="scan" class="panel" aria-labelledby="scan-title">
+      <h2 id="scan-title">Scan a repository</h2>
       <form id="live-form" novalidate>
         <label for="repo">Repository</label>
         <p id="repo-hint" class="hint">Enter <code>owner/repo</code> or a github.com URL. Press <kbd>/</kbd> to jump here.</p>
@@ -47,12 +45,20 @@
           <button type="button" class="button link" data-repo="octocat/Spoon-Knife">octocat/Spoon-Knife</button>
         </p>
       </form>
+      <details class="scan-info">
+        <summary>How the scan works</summary>
+        <p class="note">Your browser contacts GitHub directly (<code>api.github.com</code> and <code>raw.githubusercontent.com</code>), read-only and without a token. Nothing is sent to any other server. GitHub allows 60 API requests per hour per IP address, and a scan uses 2 API requests plus up to 5 README or licence downloads. Results come from the repository's default branch at one commit, and every file name is shown as text.</p>
+      </details>
+    </section>
+
+    <section id="report" aria-labelledby="report-title">
+      <h2 id="report-title">Scan report</h2>
       <p id="live-status" role="status" class="hint"></p>
       <div id="live-result"></div>
     </section>
 
-    <section id="samples" aria-labelledby="sample-title">
-      <h2 id="sample-title">Sample reports</h2>
+    <details id="samples" class="panel">
+      <summary>Offline sample reports</summary>
       <p>Sample reports use <strong>synthetic data</strong> and make no network requests. In these sample reports the Evidence column shows the <strong>file names</strong> a check matched, as plain text; no link is made because no real repository is behind them.</p>
       <div class="field-row">
         <label for="sample">Sample repository</label>
@@ -61,10 +67,10 @@
       </div>
       <p id="description" class="hint"></p>
       <div id="result" aria-live="polite"></div>
-    </section>
+    </details>
 
-    <section id="about" aria-labelledby="about-title">
-      <h2 id="about-title">What it checks, and what it does not</h2>
+    <section id="about" class="panel" aria-labelledby="about-title">
+      <h2 id="about-title">Check reference</h2>
       <p>Each check looks for files in standard places. The list below is generated from the same checks the scan runs.</p>
       <dl id="check-list" class="checks"></dl>
       <h3>Limits</h3>
@@ -75,14 +81,10 @@
         <li>A project that keeps these files elsewhere will show a warning.</li>
       </ul>
     </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="wrap">
+    <footer class="site-footer">
       <p>MIT licence. RepoPilot never runs code from a scanned repository.</p>
-      <p id="source-link"></p>
-    </div>
-  </footer>
+    </footer>
+  </main>
 
   <script type="module" src="dist/web/src/main.js"></script>
 </body>
