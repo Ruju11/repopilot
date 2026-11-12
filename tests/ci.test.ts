@@ -41,6 +41,25 @@ test('CI requires link fixtures, so the symlink tests fail instead of skipping o
   }
 });
 
+const pages = readFileSync(join(root, '.github', 'workflows', 'pages.yml'), 'utf8');
+
+test('the Pages workflow starts only by hand, is pinned, and gives write access to the deploy job only', () => {
+  assert.match(pages, /^on:\n {2}workflow_dispatch:\n/m);
+  assert.ok(!/^\s+(push|pull_request|pull_request_target|schedule|workflow_run):/m.test(pages), 'no automatic trigger');
+  assert.match(pages, /^permissions:\n {2}contents: read\n/m);
+  const uses = [...pages.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((match) => match[1] ?? '');
+  assert.equal(uses.length, 4);
+  for (const reference of uses) assert.match(reference, /^actions\/[\w.-]+@[0-9a-f]{40}$/, reference);
+  const deployJob = pages.slice(pages.indexOf('\n  deploy:'));
+  assert.match(deployJob, /permissions:\n {6}pages: write\n {6}id-token: write\n/);
+  const buildJob = pages.slice(pages.indexOf('\n  build:'), pages.indexOf('\n  deploy:'));
+  assert.ok(!/pages: write|id-token: write/.test(buildJob), 'build job has no write access');
+  assert.ok(!/secrets\./.test(pages), 'no secrets');
+  assert.ok(!/\$\{\{\s*github\.(event|head_ref)/.test(pages), 'no event data');
+  assert.match(pages, /REQUIRE_LINK_TESTS: '1'/);
+  assert.match(pages, /path: web\n/);
+});
+
 test('package-lock.json is committed, matches package.json, and is usable by npm ci', () => {
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
