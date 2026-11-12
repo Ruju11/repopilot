@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import { analyze } from '../src/core/analyze.ts';
-import { resolveStatic } from '../scripts/serve.ts';
+import { createStaticServer, resolveServable, resolveStatic } from '../scripts/serve.ts';
 import { SAMPLES } from '../web/src/samples.ts';
 import { toView } from '../web/src/view.ts';
 
@@ -64,6 +66,81 @@ test('the page is locked down: strict policy, no network, no inline code or hand
   assert.ok(!/<script(?![^>]*\bsrc=)/i.test(html), 'inline script');
   assert.ok(!/\son\w+\s*=/i.test(html), 'inline event handler');
   assert.ok(!/(?:src|href)\s*=\s*"(?:https?:)?\/\//i.test(html), 'external resource');
+});
+
+test('the demo intro says the Evidence column shows file names', () => {
+  const html = readFileSync(join(webDir, 'index.html'), 'utf8');
+  assert.match(html, /Evidence column shows the <strong>file names<\/strong> a check matched, as plain text/);
+  assert.match(html, /no link is made because no real repository is behind them/);
+});
+
+// --- links inside web/ must not expose files outside it ---
+
+const temp = mkdtempSync(join(tmpdir(), 'repopilot-serve-'));
+after(() => rmSync(temp, { recursive: true, force: true }));
+const root = join(temp, 'web');
+const outside = join(temp, 'outside');
+mkdirSync(root);
+mkdirSync(outside);
+writeFileSync(join(root, 'ok.css'), 'body{}');
+writeFileSync(join(outside, 'secret.css'), 'TOP-SECRET');
+let links = 0;
+const tryLink = (target: string, path: string, type: 'junction' | 'file'): void => {
+  try {
+    symlinkSync(target, path, type);
+    links += 1;
+  } catch {
+    // not permitted on this system
+  }
+};
+tryLink(outside, join(root, 'dir-link'), 'junction'); // a folder link (a junction on Windows)
+tryLink(join(outside, 'secret.css'), join(root, 'file-link.css'), 'file');
+const rootLink = join(temp, 'web-link');
+tryLink(root, rootLink, 'junction');
+
+test('REGRESSION: a link inside web/ cannot serve a file outside it', (t) => {
+  if (links === 0) {
+    t.skip('cannot create links on this system');
+    return;
+  }
+  // The name-only check is fooled by links; that is why the real-path check exists.
+  assert.ok(resolveStatic(root, '/dir-link/secret.css'));
+  assert.equal(resolveServable(root, '/dir-link/secret.css'), undefined);
+  assert.equal(resolveServable(root, '/file-link.css'), undefined);
+  assert.ok(resolveServable(root, '/ok.css')?.endsWith('ok.css'));
+  assert.equal(resolveServable(root, '/missing.css'), undefined);
+});
+
+test('a web/ folder that is itself a link still serves its own files and nothing else', (t) => {
+  if (!resolveStatic(rootLink, '/ok.css') || links === 0) {
+    t.skip('cannot create links on this system');
+    return;
+  }
+  assert.ok(resolveServable(rootLink, '/ok.css')?.endsWith('ok.css'));
+  assert.equal(resolveServable(rootLink, '/dir-link/secret.css'), undefined);
+});
+
+test('REGRESSION over HTTP: the server answers 404 and never sends the outside file', async (t) => {
+  if (links === 0) {
+    t.skip('cannot create links on this system');
+    return;
+  }
+  const server = createStaticServer(root);
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  try {
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    for (const path of ['/dir-link/secret.css', '/file-link.css', '/dir-link/../ok.css/../dir-link/secret.css']) {
+      const response = await fetch(base + path);
+      assert.equal(response.status, 404, path);
+      assert.ok(!(await response.text()).includes('TOP-SECRET'), path);
+    }
+    const ok = await fetch(`${base}/ok.css`);
+    assert.equal(ok.status, 200);
+    assert.equal(await ok.text(), 'body{}');
+    assert.equal(ok.headers.get('x-content-type-options'), 'nosniff');
+  } finally {
+    await new Promise<void>((done) => server.close(() => done()));
+  }
 });
 
 test('the local server only serves files below web/', () => {

@@ -24,7 +24,7 @@ File names come from untrusted repositories. In Markdown output they are escaped
 npm run demo     # builds web/dist, serves http://127.0.0.1:4173/
 ```
 
-The page runs the same checks in the browser on three synthetic samples, one of them with hostile file names. It makes no network requests: the page's Content-Security-Policy sets `connect-src 'none'`, `script-src 'self'` and no inline code. All report text is placed with `textContent`; no HTML is ever parsed, and a test fails if `innerHTML` and similar calls appear in the demo code. Live GitHub scans are not part of the demo yet; adding them will need a deliberate policy change and a review. The demo has not been deployed.
+The page runs the same checks in the browser on three synthetic samples, one of them with hostile file names. It makes no network requests: the page's Content-Security-Policy sets `connect-src 'none'`, `script-src 'self'` and no inline code. All report text is placed with `textContent`; no HTML is ever parsed, and a test fails if `innerHTML` and similar calls appear in the demo code. The local server resolves the real path of `web/` and of each requested file, so a symbolic link or Windows junction inside `web/` cannot expose a file outside it (tested over HTTP). In the sample reports the Evidence column shows matched file names as plain text, not links. Live GitHub scans are not part of the demo yet; adding them will need a deliberate policy change and a review. The demo has not been deployed.
 
 ## Development
 
